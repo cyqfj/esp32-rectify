@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang=cn>
+	<head>
+		<meta charset="UTF-8" />
+		<meta charset="UTF-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+		<title>自动纠偏机控制面板</title>
+		<link rel="stylesheet" href="style.css" />
+		<!--link href="http://cdn.bootcss.com/bootstrap/3.3.5/css/bootstrap.min.css" rel="stylesheet" media="screen"-->
+		<!--script src="http://cdn.staticfile.org/jquery/2.2.4/jquery.min.js"></script-->
+		<script language="javascript" type="text/javascript" src="jquery.js"></script>
+		<link href="jquery-ui.css" rel="stylesheet" />
+		<script src="jquery-ui.min.js"></script>
+		<script language="javascript" type="text/javascript" src="jquery.flot.js"></script>
+		<script language="javascript" type="text/javascript" src="jquery.flot.pie.js"></script>
+		
+		<style type="text/css">
+			.sep5 {
+				height: 5px;
+			}
+			.sep10 {
+				height: 10px;
+			}
+			div.graph  
+            {  
+                width: 70px;  
+                height: 70px;  
+                border: 1px dashed gainsboro;  
+            }
+			.font1 {
+				color: #fff;
+				font-size: 20px;
+				font-family: 宋体;
+				font-weight:1;
+			}
+			.clslb1 {
+				width:100px;
+				text-align:center;
+				align:center;
+			}
+			.btnx {
+				background-color: #4C80BF;
+				border: none;
+				color: white;
+				padding: 8px 16px 6px 6px;
+				text-align: center;
+				text-decoration: none;
+				display: inline-block;
+				font-size: 16px;
+				margin: 4px 2px;
+				cursor: pointer;
+				border-radius: 8px;
+				height: 40px;
+			}
+			.btnx img {
+				float: left;
+				width: 36px;
+				height: 36px;
+				/* margin: -8px 0px 0px -3px; */
+				margin: -6px 0px 0px 0px;
+			}
+			
+			.btnx .span {
+				float: left;
+				width: 20px;
+				height: 20px;
+			}
+			.btnx:disabled {
+				background-color: #aaa;
+				cursor:default;
+				pointer-events: none;
+			}
+
+			.btnx:active {
+				transform: scale(0.98);
+				box-shadow: 3px 2px 22px 1px rgba(0, 0, 0, 0.24);
+			}
+		</style>
+	</head>
+
+	<body style="in-width: 450px;width:100%;">
+		<div id="container" class="container" style="margin:0px auto;text-align:center;width:90%;border-radius:10px;background-image: linear-gradient(90deg, #235, #58B);">
+			<div>
+				<h1 style="color:#ef0;">自动纠偏机控制面板</h1>
+			</div>
+			<table style="width:300px;" align="center"><tr>
+				<td class="clslb1"><div><img src='ledgray32.png' id='runState'></img></div><div class="sep5"></div>
+				<div><font class='font1'>运行<font></div></td>
+				<td class="clslb1"><div><img src='ledgray32.png' id='failureState'></img></div><div class="sep5"></div>
+				<div><font class='font1'>故障</font></div></td>
+				<td class="clslb1"><div id="memrate" class="graph"></div><div class="sep5"></div>
+				<div style='width:70px;text-align:center'><font class='font1'>内存</font></div></td>
+			</tr></table>
+			<div class="sep10"></div>
+			<canvas id="cvsPanel" style="border:1px dashed gray;" width=430px height=290px></canvas>
+			<div class="sep10"></div>
+			<div id='lrPanel' style="display:none;">
+				<button id='btnLeft' class="btnx"><img src="toleft-40.png"></img>&nbsp;左摆</button>
+				<label style="width:30px;">&nbsp;</label>
+				<button id='btnRight' class="btnx"><img src="toright-40.png"></img>&nbsp;右摆</button>
+			</div>
+			<div>
+				<button id='btnStart' class="btnx"><img src="playon.png">&nbsp;启动</button>
+				<button id='btnStop' class="btnx"><img src="stopon.png"></img>&nbsp;停止</button>
+				<button id='btnChk' class="btnx"><img src="sensor-40.png"></img>&nbsp;调测</button>
+			</div>
+			<div style="height:10px;">&nbsp;</div>
+		</div>
+		<br />
+		<!--div style="text-align: center;"><button id='btnTest' >发送测试</button></div-->
+		<div id='infox' style="text-align: center"></div>
+		<div style="display:none"><img id="dddk" src="tuigan2-m.png"></img></div>
+		<div id="dlgChkStart" title="提示">
+			<div id="dlgPrompt">确认启用自动处理程序?</div>
+		</div>
+	</body>
+	<script>
+
+		
+        function openWebSocket()
+        {
+            var wsUri           = "ws://" + window.location.hostname + ":" + window.location.port;
+            console.log(wsUri);
+            writeToScreen("Connection to " + wsUri + "...")
+			try {
+				websocket           = new WebSocket(wsUri);
+				websocket.onopen    = function(evt) { onOpen    (evt) };
+				websocket.onclose   = function(evt) { onClose   (evt) };
+				websocket.onmessage = function(evt) { onMessage (evt) };
+				websocket.onerror   = function(evt) { onError   (evt) };
+			} catch(err) {
+				websocket = null;
+				writeToScreen("Connection to " + err.message + "...")
+			}
+        }
+
+        function onOpen(evt)
+        {
+            writeToScreen("<strong>-- CONNECTED --</strong>");
+        }
+
+        function onClose(evt)
+        {
+            writeToScreen("<strong>-- DISCONNECTED --</strong>");
+        }
+
+		//mcu发送的数据处理
+        function onMessage(evt)
+        {
+			var data;
+			try {
+				data = JSON.parse(evt.data);
+				//console.log(data);
+			} catch (err) {
+				console.log(data);
+				console.log(evt);
+				writeToScreen('MSG FROM SERVER (err json format!): <span style="color: blue;">' + evt.data + '</span>');
+				return;
+			}
+            writeToScreen('MSG FROM SERVER : <span style="color: blue;">' + evt.data + '</span>');
+			switch (data.cmd) {
+				case "driver":
+					showTuiganLed(data.data[0], data.data[1]);
+					break
+				case "usensor":
+					showPaper(data.data[0], data.data[1]);
+					break;
+				case "failureState":
+					failureState = data.data[0];
+					break;
+				case "runState":
+					runState = data.data[0];
+					setRunBtnStatus(runState);
+					break;
+				case "memRate":
+					dataMemRate[0].data = data.data[0];
+					dataMemRate[1].data = data.data[1];
+					yyx = drawMemRate(dataMemRate);
+					break;
+				case "dist":
+					showTuigan2(data.data[0]);
+					break;
+				default:
+					break;
+			}
+        }
+
+        function onError(evt)
+        {
+			websocket.close();
+            writeToScreen('ERROR : <span style="color: red;">' + evt.data + '</span>');
+        }
+
+        function SendMsg(msg)
+        {
+            writeToScreen('MSG TO SERVER : <span style="color: green;">' + msg + '</span>');
+			if (websocket != null) {
+				websocket.send(msg);
+			}
+        }
+
+        function writeToScreen(s)
+        {
+			$("#infox").html(s);
+        }
+
+		//=======================================================================================
+		runState = 0;			//是否运行中
+		failureState = 0;		//是否有故障
+		
+		//显示运行LED指示灯
+		preRunState = runState;
+		runledflash = 0;
+		function showRunLed() {
+			if (runState == 1) {
+				if (runledflash == 0) {
+					$('#runState').get(0).src = "ledgreen32.png";
+					runledflash = 1;
+				} else {
+					$('#runState')[0].src = "ledgray32.png";
+					runledflash = 0;
+				}
+			} else {
+				if (runState == preRunState)
+					return;
+				$('#runState')[0].src = "ledgray32.png";
+				runledflash = 1;
+			}
+			preRunState = runState;
+		}
+
+		//显示故障LED指示灯
+		preFailureState = failureState;
+		failureledflash = 0;
+		function showFailureLed() {
+			if (failureState == 1) {
+				if (failureledflash == 0) {
+					$('#failureState').get(0).src = "ledred32.png";
+					failureledflash = 1;
+				} else {
+					$('#failureState')[0].src = "ledgray32.png";
+					failureledflash = 0;
+				}
+			} else {
+				if (failureState == preFailureState)
+					return;
+				$('#failureState')[0].src = "ledgray32.png";
+				failureledflash = 1;
+			}
+			preFailureState = failureState;
+		}
+		
+		//显示内存使用率
+		function drawMemRate(data)
+		{
+			return $.plot($("#memrate"), data, {  
+				series: {  
+					pie: {   
+						show: true,  
+						radius: 1, //半径  
+						label: {  
+							show: true,  
+							radius: 2/3,  
+							formatter: function(label, series) {  
+								return '<div style="font-size:8pt;text-align:center;padding:2px;color:white;">'+label+/*'<br/>'+Math.round(series.percent)+'%*/'</div>';  
+							},
+							threshold: 0.03  //这个值小于0.03，也就是3%时，label就会隐藏  
+						}  
+					}  
+				},
+				legend: {
+					show: false
+				}
+			});
+		}
+		
+		//初次显示内存占用率
+		function bintu0()
+		{
+			dataMemRate = [  
+				{ label: "已用",  data: 10},
+				{ label: "空闲",  data: 90},
+			];
+			dataMemRate[0].data = 20;
+			dataMemRate[1].data = 80;
+			yyx = drawMemRate(dataMemRate);
+		}
+		
+		lw2 = 80+100+234;
+		lh2 = 157+79;
+
+		var tgdist2 = 100;
+		var tgdist1 = 20;
+
+		function moveTuigan2(h0)
+		{
+			//cttPanel.clearRect(43,157,18,122)
+			cttPanel.clearRect(0,157,80,122+20)
+			cttPanel.drawImage(layer1,0,15+122-h0,18,h0,43,157,18,h0);
+		}
+		
+		function movePaper(x)
+		{
+			cttPanel.clearRect(lw2-90-120,85,234+16,79)
+			cttPanel.drawImage(layer2,80+100,30,234,157, 80+100,30,234,157);
+			cttPanel.drawImage(layer3,0,0,234,79,lw2-90-x,85,234,79);
+		}
+		
+		function showTuigan2(d0)
+		{
+			h0 = d0*1.05
+			moveTuigan2(h0);
+			cttPanel.font = "18px 宋体";
+			cttPanel.fillStyle = "#fd0";
+			sh0 = (d0/10).toString();
+			cttPanel.fillText(sh0, 30, 157+h0+5, 50);
+			cttPanel.fillStyle = "#a95";
+			cttPanel.fillText("cm", 30+sh0.length*10, 157+h0+5, 50);
+		}
+		
+		led16s = [null, null, null];
+		function showTuiganLed(ledup, leddown)
+		{
+			if (ledup == 1) {
+				cttPanel.drawImage(led16s[1], 43, 39);
+			} else {
+				cttPanel.drawImage(led16s[0], 43, 39);
+			}
+			if (leddown == 1) {
+				cttPanel.drawImage(led16s[1], 43, 112);
+			} else {
+				cttPanel.drawImage(led16s[0], 43, 112);
+			}
+		}
+		
+		function showUSensorLed(led1, led2)
+		{
+			if (led1 == 1) {
+				ctt2.drawImage(led16s[2], 80+100+45, 30+30);
+			} else {
+				ctt2.drawImage(led16s[1], 80+100+45, 30+30);
+			}
+			if (led2 == 1) {
+				ctt2.drawImage(led16s[2], 80+100+135, 30+30);
+			} else {
+				ctt2.drawImage(led16s[1], 80+100+135, 30+30);
+			}
+			cttPanel.drawImage(layer2,80+100,30,234,80, 80+100,30,234,80);
+		}
+		
+		function showPaper(led1, led2)
+		{
+			showUSensorLed(led1, led2);
+			rng2 = {"11": 120, "1": 60, "0": 0};
+			movePaper(rng2[led1*10+led2]);
+		}
+		
+		function setRunBtnStatus(running)
+		{
+			if (!running) {
+				$("#btnStart").attr({"disabled":false,"readonly":false});
+				$("#btnStop").attr({"disabled":true,"readonly":true});
+			} else {
+				$("#btnStart").attr({"disabled":true,"readonly":true});
+				$("#btnStop").attr({"disabled":false,"readonly":false});
+			}
+		}
+		
+		var btnchkwait = false;
+		function regbtns()
+		{
+			//$("#btnStart").is(":disabled"))
+			$("#btnStart").click(function() {
+				if ($("#btnChk").html().indexOf('停止调测') > 0) {
+					return;
+				}
+				dialog.dialog( "open" );
+				//setRunBtnStatus(true);
+			});
+			$("#btnStop").click(function() {
+				var req = {cmd:"runStart", data:0};
+				SendMsg(JSON.stringify(req));
+				//setRunBtnStatus(false);
+			});
+			$("#btnChk").click(function() {
+				var txt = $("#btnChk").html();
+				if (txt.indexOf('停止调测') > 0) {
+					$("#btnChk").html(txt.replace('停止调测', '调测'));
+					$("#lrPanel").toggle();
+				} else {
+					//发出停止命令
+					var req = {cmd:"runStart", data:0};
+					SendMsg(JSON.stringify(req));
+					//不重复创建新的异步判断过程
+					if (btnchkwait) {
+						return;
+					}
+					btnchkwait = true;
+					//异步判断是否已停止自动处理
+					var hbtnchk = setInterval(function() {
+						if (runState == 0) {
+							$("#btnChk").html(txt.replace('调测', '停止调测'));
+							$("#lrPanel").toggle();
+							clearInterval(hbtnchk);
+							btnchkwait = false;
+						}
+					}, 500);
+				}
+			});
+			
+			var tap;
+			var taptimer;
+			//处理taphold默认事件, 改为mousedown, mouseup
+			//$("body").on("touchstart", /*$("#btnLeft,#btnRight"), */ function(e) {
+			$("#btnLeft, #btnRight").on("touchstart", function(e) {
+				e.preventDefault();
+				$(e.target).trigger("mousedown");
+				/*
+				taptimer = setTimeout(function() {
+					tap = false;
+				}, 500);
+				*/
+				return false;
+			});
+
+			$("#btnLeft, #btnRight").on("touchend", function(e) {
+				/*
+				if (!tap) tap = true;
+				clearTimeout(taptimer);
+				*/
+				$(e.target).trigger("mouseup");
+				return false;
+			});
+
+			$("#btnLeft,#btnRight").on("contextmenu", function(e) {
+				e.preventDefault();
+                $(e.target).trigger("mousedown");
+				return false;
+			});
+			/*
+$("body").on("touchstart", function(e) {
+     // 判断默认行为是否可以被禁用
+     if (e.cancelable) {
+         // 判断默认行为是否已经被禁用
+         if (!e.defaultPrevented) {
+             e.preventDefault();
+         }
+     }
+ });
+			$("#btnLeft,#btnRight").on("longTap", function(e) {
+				e.preventDefault();
+                $(e.target).trigger("mousedown");
+				alert('dddd');
+				return false;
+			});
+
+			$("body").on("taphold", function(e) {
+				e.preventDefault();
+			});
+			*/
+
+			$("#btnLeft").mousedown(function() {
+				var req = {cmd:"toleft", data:1};
+				SendMsg(JSON.stringify(req));
+				//showTuiganLed(0, 1);
+			});
+			$("#btnRight").mousedown(function() {
+				var req = {cmd:"toright", data:1};
+				SendMsg(JSON.stringify(req));
+				//showTuiganLed(1, 0);
+			});
+			$("#btnLeft").mouseup(function() {
+				var req = {cmd:"toleft", data:0};
+				SendMsg(JSON.stringify(req));
+				//showTuiganLed(0, 0);
+			});
+			$("#btnRight").mouseup(function() {
+				var req = {cmd:"toright", data:0};
+				SendMsg(JSON.stringify(req));
+				//showTuiganLed(0, 0);
+			});
+		}
+
+		function dlg()
+		{
+			dialogButtons = [
+			{
+				text: " 启动 ",
+				click: function() {
+					dialog./*dialog( "option", "buttons", [] ).*/dialog( "close" );
+					var req = {cmd:"runStart", data:1};
+					SendMsg(JSON.stringify(req));
+				}
+			},
+			{
+				text: " 取消 ",
+				click: function() {
+					dialog.dialog( "close" );
+				}
+			}],
+		
+			dialog = $( "#dlgChkStart" ).dialog({
+				autoOpen: false,
+				closeOnEscape: false,
+				resizable: false,
+				buttons: dialogButtons,
+				modal: true,
+				open: function() {
+                    /*
+                    $(this).closest(".ui-dialog")
+                    .find(".ui-dialog-titlebar-close")
+                    .removeClass("ui-dialog-titlebar-close")
+                    .html("<span class='ui-button-icon-primary ui-icon ui-icon-closethick'></span>");
+                    */
+				},
+				beforeClose: function() {
+				}
+			});
+		}
+		
+		url = "";
+        function init()
+        {
+			var sUserAgent = navigator.userAgent.toLowerCase();
+			if (/ipad|iphone|midp|rv:1.2.3.4|ucweb|android|windows ce|windows mobile/.test(sUserAgent)) {
+				ctxScale = 0.75;
+			} else {
+				ctxScale = 1;
+			}
+		
+			dlg();			//初始化对话框
+			bintu0();		//显示一次内存占用率
+
+			if (window.location.protocol != "file:") {
+				console.log(window.location.protocol);
+				//url = window.location.protocol + "//" + window.location.hostname + ":" + window.location.port+"/";// + "/www/";
+			}
+				console.log(url);
+			//$('#btnTest').text('test');
+			/*
+			$("#btnTest").click(function(){
+				var tstData = {cmd:"runStart", data:1};
+				SendMsg(JSON.stringify(tstData));
+			});
+			*/
+			/*
+			var top1 = parseInt($("#imgg1").css("top"));
+			$("#imgg1").css("top", top1 - 50 );
+			$("#imgg1").css({"top":top1 - 50, "left":200});
+			var canvas = $("#canvas");
+			var context = canvas.get(0).getContext("2d");
+			*/
+			cvsPanel = document.getElementById("cvsPanel");
+			cttPanel = cvsPanel.getContext("2d");
+			cvsPanel.width = cvsPanel.width*ctxScale;
+			cvsPanel.height = cvsPanel.height*ctxScale;
+			cttPanel.scale(ctxScale, ctxScale);
+
+			cttPanel.textAlign = "left";
+			cttPanel.textBaseLine = "top";
+			
+			//创建三个画布，用于图层模式
+			layer1 = document.createElement('canvas');
+			layer1.width=80; layer1.height=122;
+			ctt1 = layer1.getContext("2d");
+			layer2 = document.createElement('canvas');
+			layer2.width=lw2; layer2.height=lh2;		//80*157, 中间隔100, 234*157, 
+			ctt2 = layer2.getContext("2d");
+			layer3 = document.createElement('canvas');
+			layer3.width=234; layer3.height=79;
+			ctt3 = layer3.getContext("2d");
+			//drawImage(image, sx, sy, sw, sh, dx, dy, dw, dh)
+			cvsPanel.globalCompositeOperation="destination-over";	//设置多图层混合模式
+			
+			var img16s = ["ledgray16", "ledgreen16", "ledred16"];
+			for (var i=0; i<3; i++) {
+				led16s[i] = new Image();
+				led16s[i].src = url + img16s[i] + ".png";
+			}
+			let img1 = new Image();
+			img1.src = url + "tuigan2-m.png";
+			img1.onload = function () {
+                console.log("tuigan2-m.png");
+				ctt1.drawImage(img1, 0, 0);   						//在画布(X=0,y=0)添加推杆图片
+				let img21 = new Image();
+				img21.src = url + "tuigan12-m.png";
+				img21.onload = function () {
+					console.log("uigan12-m.png");
+					ctt2.drawImage(img21, 0, 0);					//推杆基本形状
+					let img22 = new Image();
+					img22.src = url + "u-sensor-m.png";
+					img22.onload = function () {
+						console.log("u-sensor-m.png");
+						ctt2.drawImage(img22, 80+100, 30);			//U型传感器
+						let img3 = new Image();
+						img3.src = url + "paper-m.png";
+						img3.onload = function () {
+							console.log("paper-m.png");
+							ctt3.drawImage(img3, 0, 0);				//纸张
+							cttPanel.drawImage(layer2,0,0,lw2,lh2,0,0,lw2,lh2);
+							showTuigan2(100);
+							movePaper(0);
+							showTuiganLed(0, 0);
+							showPaper(0, 1);
+							regbtns();
+							//$("#lrPanel").toggle();
+							$("#btnStop").attr({"disabled":true,"readonly":true});
+							setInterval(function() {showRunLed();}, 600);
+							setInterval(function() {showFailureLed();}, 500);
+							var img = new Image();
+							img.src = "ledgreen32.png";
+							img.onload = function() {
+								img.src = "ledred32.png";
+								img.onload = function() {
+									openWebSocket();				//和mcu建立websock通信
+
+									/*
+									//测试
+									setInterval(demo1, 500);		//循环演示
+									//runState = 1;
+									failureState = 1;
+									*/
+								}
+							}
+						};
+					};
+				};
+			};
+		}
+
+
+		//演示推杆运动及U型传感器指示灯变化
+		dist1 = tgdist2;
+		sensor = [0,0];
+		loopus = 0;
+
+		dir1 = true;
+		dir2 = true;
+		ucnt1 = 0;
+		
+		function demo1() {
+			if (dir1) {
+				if (dist1 < tgdist2)
+					dist1 += 5;
+				else {
+					dist1 = tgdist2;
+					dir1 = false;
+				}
+			} else {
+				if (dist1 > tgdist1)
+					dist1 -= 5;
+				else {
+					dist1 = tgdist1;
+					dir1 = true;
+				}
+			}
+			showTuigan2(dist1);
+			ucnt1 += 1;
+			if (ucnt1 < 2)
+				return
+			ucnt1 = 0;
+			ud1 = [ [0,0], [0,1], [1,1] ];
+			if (dir2) {
+				if (loopus < 2)
+					loopus+=1;
+				else {
+					loopus = 2;
+					dir2 = false;
+				}
+			} else {
+				if (loopus > 0)
+					loopus-=1;
+				else {
+					loopus = 0;
+					dir2 = true;
+				}
+			}
+			showPaper(ud1[loopus][0], ud1[loopus][1]);
+		}
+
+		$(function() {
+			init();
+		});
+		/*
+		$(document).ready(function(){
+		  $("#b01").click(function(){
+		  htmlobj=$.ajax({url:"/jquery/test1.txt",async:false});
+		  $("#myDiv").html(htmlobj.responseText);
+		  });
+		});
+		window.addEventListener("load", init, false);
+		*/
+	</script>
+	</body>
+</html>
