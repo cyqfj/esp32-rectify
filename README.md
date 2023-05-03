@@ -15,3 +15,6 @@ XX.XX.XX.XX:8081
 Replacing threads with timers and coroutines can meet the demand for simultaneous access. Additionally, considering the possibility of using udp in the future
 
 No asynchronous io used
+
+screen shot
+https://gitee.com/cyqfj/esp32-rectify/blob/main/screen-shot.png
